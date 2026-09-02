@@ -1,10 +1,4 @@
-/* 
-  3D Ambi Global Styles 
-  Modular, Themeable, and Accessible
-*/
-
 :root {
-  /* Colors - Light Theme (Default) */
   --bg-primary: #ffffff;
   --bg-secondary: #f8fafc;
   --text-primary: #0f172a;
@@ -45,7 +39,6 @@ body {
   transition: background-color 0.3s, color 0.3s;
 }
 
-/* Candidate Page Layout */
 .app {
   max-width: 1000px;
   margin: 0 auto;
@@ -74,7 +67,6 @@ body {
 .status-dot--warn { background-color: var(--status-warn); }
 .status-dot--bad { background-color: var(--status-bad); }
 
-/* Components */
 .card {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -107,7 +99,6 @@ body {
   font-size: 1rem;
 }
 
-/* Checklist */
 .checklist {
   display: flex;
   flex-direction: column;
@@ -122,7 +113,6 @@ body {
 }
 .check-item.ok { color: var(--status-good); }
 
-/* Canvas & Test UI */
 .canvas-wrap {
   width: 100%;
   aspect-ratio: 16/9;
@@ -142,7 +132,6 @@ canvas { width: 100%; height: 100%; object-fit: contain; }
   transition: opacity 0.3s ease;
 }
 
-/* Admin Specific */
 .admin-page .layout {
   display: grid;
   grid-template-columns: 240px 1fr;
@@ -198,7 +187,6 @@ canvas { width: 100%; height: 100%; object-fit: contain; }
 .screen.active { display: block; }
 .is-hidden { display: none !important; }
 
-/* Utilities */
 .mt-10 { margin-top: 0.625rem; }
 .mt-16 { margin-top: 1rem; }
 .mb-12 { margin-bottom: 0.75rem; }
@@ -213,7 +201,6 @@ canvas { width: 100%; height: 100%; object-fit: contain; }
   margin-top: 1rem;
 }
 
-/* Biometric loader styles */
 .loader-overlay {
   position: fixed;
   top: 0;
