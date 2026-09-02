@@ -12,7 +12,13 @@
     dash: 'dashboard',
     screens: ['sessions', 'questions', 'simulator', 'settings'],
     table: document.getElementById('sessionsTable').querySelector('tbody'),
-    replay: { section: 'replaySection', name: 'replayCandidate', log: 'replayTimeline' },
+    replay: {
+      section: 'replaySection',
+      name: 'replayCandidate',
+      summary: 'reviewSummary',
+      answers: 'answerReview',
+      log: 'replayTimeline'
+    },
     sim: { angle: document.getElementById('simAngle'), real: document.getElementById('simReal'), decoy: document.getElementById('simDecoy'), status: document.getElementById('simStatus') }
   };
 
@@ -93,19 +99,82 @@
     });
   }
 
+  function formatTime(ts) {
+    return ts ? new Date(ts * 1000).toLocaleString() : 'Not finished';
+  }
+
+  function formatDuration(seconds) {
+    const value = Math.max(0, Math.round(seconds || 0));
+    const minutes = Math.floor(value / 60);
+    const secs = value % 60;
+    return `${minutes}m ${String(secs).padStart(2, '0')}s`;
+  }
+
   async function loadForensicAudit(token, name) {
     const res = await api(`/api/admin/session/${encodeURIComponent(token)}`);
     if (!res) return;
     const auditData = res;
+    const session = auditData.session;
     document.getElementById(UI.replay.section).classList.remove('is-hidden');
-    document.getElementById(UI.replay.name).textContent = name;
+    document.getElementById(UI.replay.name).textContent = session.candidate_email || name;
+
+    document.getElementById(UI.replay.summary).innerHTML = [
+      ['Candidate', session.candidate_email],
+      ['Started', formatTime(session.started_at)],
+      ['Finished', session.finished_at ? formatTime(session.finished_at) : 'Active'],
+      ['Duration', formatDuration(session.durationSec)],
+      ['Score', `${Math.round((session.score || 0) * 100)}% (${session.correct_count}/${session.total_questions})`],
+      ['Answers', `${session.answered_count}/${session.total_questions}`],
+      ['Integrity', session.integrity_score],
+      ['Status', session.status]
+    ].map(([label, value]) => `
+      <div class="review-metric">
+        <span>${esc(label)}</span>
+        <strong>${esc(value)}</strong>
+      </div>
+    `).join('');
+
+    document.getElementById(UI.replay.answers).innerHTML = auditData.answers.length > 0
+      ? `
+        <table class="table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Question</th>
+              <th>Submitted</th>
+              <th>Correct Answer</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${auditData.answers.map(answer => {
+              const resultClass = !answer.answered ? 'muted' : (answer.correct ? 'pass' : 'review');
+              const resultText = !answer.answered ? 'UNANSWERED' : (answer.correct ? 'CORRECT' : 'INCORRECT');
+              return `
+                <tr>
+                  <td>${esc(answer.index + 1)}</td>
+                  <td>
+                    <strong>${esc(answer.subject || 'General')}</strong><br>
+                    ${esc(answer.question)}
+                  </td>
+                  <td>${esc(answer.submitted_answer || 'No answer')}</td>
+                  <td>${esc(answer.correct_answer || 'Unavailable')}</td>
+                  <td><span class="badge ${resultClass}">${resultText}</span></td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `
+      : '<div style="padding:1rem; color:var(--text-secondary)">No questions were assigned to this session.</div>';
     
     document.getElementById(UI.replay.log).innerHTML = auditData.events.length > 0 
       ? auditData.events.map(event => `
-          <div class="check-item ${event.type === 'tamper_detected' ? 'error-text' : ''}">
+          <div class="check-item">
             <span style="font-family:monospace; font-size:0.75rem">[${esc(new Date(event.created_at*1000).toLocaleTimeString())}]</span>
             <b style="min-width:140px; display:inline-block">${esc(event.type.toUpperCase())}</b>
             <span>${esc(event.detail || 'No additional metadata')}</span>
+            ${event.duration_ms != null ? `<span style="color:var(--text-secondary)">(${esc(event.duration_ms)}ms)</span>` : ''}
           </div>
         `).join('')
       : '<div style="text-align:center; padding:1rem; color:var(--text-secondary)">No behavioral anomalies detected during this session.</div>';

@@ -181,6 +181,52 @@ def public_settings():
         timeout = 300
     return jsonify({"inactivity_timeout": timeout})
 
+def _question_answer_key():
+    with db.get_db() as cx:
+        rows = cx.execute("SELECT id, subject, text, options, correct_index FROM questions ORDER BY id").fetchall()
+
+    questions = {}
+    for row in rows:
+        options = json.loads(row["options"])
+        correct_index = row["correct_index"]
+        correct_answer = options[correct_index] if 0 <= correct_index < len(options) else None
+        questions[row["id"]] = {
+            "id": row["id"],
+            "subject": row["subject"],
+            "text": row["text"],
+            "options": options,
+            "correct_answer": correct_answer,
+        }
+    return questions
+
+def _session_answer_review(session_row, questions_by_id):
+    answers = json.loads(session_row["answers"]) if session_row["answers"] else {}
+    question_order = json.loads(session_row["question_order"]) if session_row["question_order"] else []
+    review = []
+
+    for index, question_id in enumerate(question_order):
+        question = questions_by_id.get(question_id)
+        submitted_answer = answers.get(str(question_id))
+        correct_answer = question["correct_answer"] if question else None
+        answered = submitted_answer is not None
+        correct = answered and correct_answer is not None and submitted_answer == correct_answer
+        review.append({
+            "index": index,
+            "question_id": question_id,
+            "subject": question["subject"] if question else "Deleted",
+            "question": question["text"] if question else "Question no longer exists",
+            "options": question["options"] if question else [],
+            "submitted_answer": submitted_answer,
+            "correct_answer": correct_answer,
+            "answered": answered,
+            "correct": correct,
+        })
+
+    correct_count = sum(1 for item in review if item["correct"])
+    total_questions = len(review)
+    score = correct_count / total_questions if total_questions else 0.0
+    return review, correct_count, total_questions, score
+
 @app.route("/api/session/start", methods=["POST"])
 @limiter.limit("3 per 10 minutes")
 def start_session():
@@ -390,25 +436,14 @@ def log_event():
 def admin_sessions():
     with db.get_db() as cx:
         rows = cx.execute("SELECT * FROM sessions ORDER BY started_at DESC").fetchall()
-        questions = cx.execute("SELECT id, options, correct_index FROM questions ORDER BY id").fetchall()
-    
-    # Build answer key: question_id -> correct option text
-    answer_key = {}
-    for q in questions:
-        opts = json.loads(q["options"])
-        ci = q["correct_index"]
-        if 0 <= ci < len(opts):
-            answer_key[str(q["id"])] = opts[ci]
+    questions_by_id = _question_answer_key()
     
     sessions = []
     for r in rows:
         started = r["started_at"] or time.time()
         finished = r["finished_at"] or time.time()
         
-        answers = json.loads(r["answers"]) if r["answers"] else {}
-        correct = sum(1 for qid, ans in answers.items() if answer_key.get(qid) == ans)
-        total = len(answer_key)
-        score = correct / total if total > 0 else 0.0
+        answer_review, correct, total, score = _session_answer_review(r, questions_by_id)
         
         sessions.append({
             "id": r["id"],
@@ -417,6 +452,9 @@ def admin_sessions():
             "started_at": r["started_at"] or time.time(),
             "durationSec": finished - started,
             "score": round(score, 4),
+            "correct_count": correct,
+            "answered_count": sum(1 for item in answer_review if item["answered"]),
+            "total_questions": total,
             "integrity_score": r["integrity_score"]
         })
     return jsonify(sessions)
@@ -425,12 +463,36 @@ def admin_sessions():
 @admin_required
 def admin_session_detail(sid):
     with db.get_db() as cx:
+        session = cx.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone()
+        if not session:
+            return jsonify({"error": "session not found"}), 404
         events = cx.execute("SELECT * FROM flag_events WHERE session_id=? ORDER BY ts ASC", (sid,)).fetchall()
+    questions_by_id = _question_answer_key()
+    answer_review, correct_count, total_questions, score = _session_answer_review(session, questions_by_id)
+    started = session["started_at"] or time.time()
+    finished = session["finished_at"]
+    duration_end = finished or time.time()
+
     return jsonify({
+        "session": {
+            "id": session["id"],
+            "candidate_email": session["candidate_email"] or "Anonymous",
+            "started_at": session["started_at"],
+            "finished_at": finished,
+            "status": "complete" if finished else "active",
+            "durationSec": duration_end - started,
+            "score": round(score, 4),
+            "correct_count": correct_count,
+            "answered_count": sum(1 for item in answer_review if item["answered"]),
+            "total_questions": total_questions,
+            "integrity_score": session["integrity_score"],
+        },
+        "answers": answer_review,
         "events": [{
             "type": e["event_type"],
             "detail": e["detail"],
-            "created_at": e["ts"]
+            "created_at": e["ts"],
+            "duration_ms": e["duration_ms"],
         } for e in events]
     })
 

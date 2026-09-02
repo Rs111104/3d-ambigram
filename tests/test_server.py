@@ -318,6 +318,77 @@ def test_admin_settings_validation(client):
     assert data["inactivity_timeout"] == "500"
     assert data["integrity_threshold"] == "75"
 
+def test_admin_session_detail_includes_answer_review(client):
+    r = client.post("/api/session/start",
+        json={"email": "review@example.com"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+    sid = r.get_json()["session_id"]
+
+    r = client.post("/api/session/consent",
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    with db.get_db() as cx:
+        session = cx.execute("SELECT question_order FROM sessions WHERE id=?", (sid,)).fetchone()
+        question_order = json.loads(session["question_order"])
+        q1 = cx.execute("SELECT options, correct_index FROM questions WHERE id=?", (question_order[0],)).fetchone()
+        q2 = cx.execute("SELECT options, correct_index FROM questions WHERE id=?", (question_order[1],)).fetchone()
+
+    q1_options = json.loads(q1["options"])
+    q2_options = json.loads(q2["options"])
+    correct_answer = q1_options[q1["correct_index"]]
+    wrong_answer = next(opt for opt in q2_options if opt != q2_options[q2["correct_index"]])
+
+    r = client.post("/api/answer",
+        json={"questionId": question_order[0], "answer": correct_answer},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.post("/api/answer",
+        json={"questionId": question_order[1], "answer": wrong_answer},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.post("/api/flag",
+        json={"type": "tab_hidden", "detail": "visibility changed", "duration_ms": 1200},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.post("/api/admin/login",
+        json={"username": "testadmin", "password": "testpass"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.get(f"/api/admin/session/{sid}")
+    assert r.status_code == 200
+    data = r.get_json()
+
+    assert data["session"]["id"] == sid
+    assert data["session"]["candidate_email"] == "review@example.com"
+    assert data["session"]["answered_count"] == 2
+    assert data["session"]["correct_count"] == 1
+    assert data["session"]["total_questions"] == len(question_order)
+    assert data["session"]["score"] == round(1 / len(question_order), 4)
+    assert len(data["answers"]) == len(question_order)
+    assert data["answers"][0]["question_id"] == question_order[0]
+    assert data["answers"][0]["submitted_answer"] == correct_answer
+    assert data["answers"][0]["correct"] is True
+    assert data["answers"][1]["question_id"] == question_order[1]
+    assert data["answers"][1]["submitted_answer"] == wrong_answer
+    assert data["answers"][1]["correct"] is False
+    assert data["events"][0]["type"] == "tab_hidden"
+    assert data["events"][0]["duration_ms"] == 1200
+
+def test_admin_session_detail_returns_404_for_unknown_session(client):
+    r = client.post("/api/admin/login",
+        json={"username": "testadmin", "password": "testpass"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.get("/api/admin/session/missing")
+    assert r.status_code == 404
+
 def test_decoy_with_session(client):
     """Decoy endpoint should return encrypted data for a valid session."""
     r = client.post("/api/session/start",

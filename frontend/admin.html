@@ -69,11 +69,15 @@
 
         <div id="replaySection" class="card mt-16 is-hidden">
           <div style="display:flex; justify-content:space-between; align-items:center;">
-             <h2>Forensic Timeline: <span id="replayCandidate">--</span></h2>
+             <h2>Session Review: <span id="replayCandidate">--</span></h2>
              <button class="btn" style="padding:4px 12px; font-size:0.75rem" id="closeReplayBtn">Close</button>
           </div>
-          <div id="replayTimeline" class="checklist mt-16" style="max-height: 350px; overflow-y: auto; border: 1px solid var(--border-color); padding: 1.25rem; background: var(--bg-primary);">
-             <!-- Events injected here -->
+          <div id="reviewSummary" class="review-summary mt-16"></div>
+          <h3 class="mt-16">Answers</h3>
+          <div id="answerReview"></div>
+          <h3 class="mt-16">Proctoring Events</h3>
+          <div id="replayTimeline" class="checklist mt-16 review-timeline">
+             <!-- Session detail injected here -->
           </div>
         </div>
       </section>
