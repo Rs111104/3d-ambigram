@@ -18,7 +18,10 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 load_dotenv()
 
-import db
+try:
+    from . import db
+except ImportError:
+    import db
 
 # Structured JSON Logging
 class JsonFormatter(logging.Formatter):
@@ -59,6 +62,9 @@ if not IS_SECURE and (os.environ.get("RENDER") or os.environ.get("PRODUCTION")):
 
 app = Flask(__name__, static_folder="../frontend")
 app.secret_key = FLASK_SECRET
+
+with app.app_context():
+    db.init_db()
 
 # M4 AES payload encryption helper
 def encrypt_payload(data: dict, hex_key: str) -> dict:
@@ -117,7 +123,7 @@ def set_security_headers(response):
         "style-src 'self' 'unsafe-inline' fonts.googleapis.com fonts.gstatic.com; "
         "font-src fonts.gstatic.com; "
         "img-src 'self' data:; "
-        "connect-src 'self'; "
+        "connect-src 'self' cdn.jsdelivr.net; "
         "frame-ancestors 'none'"
     )
     return response
@@ -222,6 +228,8 @@ def get_question():
     sess = db.session_get(sid)
     if not sess:
         return jsonify({"error": "unauthorized"}), 403
+    if not sess.get("consented_at"):
+        return jsonify({"error": "consent required"}), 403
     
     if sess.get("finished_at"):
         return jsonify({"done": True})
@@ -263,6 +271,8 @@ def get_decoy():
     sess = db.session_get(sid)
     if not sess:
         abort(403)
+    if not sess.get("consented_at"):
+        return jsonify({"error": "consent required"}), 403
     db.log_flag(sid, "decoy_requested")
     
     idx = sess["q"]
@@ -311,10 +321,32 @@ def submit_answer():
     
     if sess.get("finished_at"):
         return jsonify({"error": "session finished"}), 403
+    if not sess.get("consented_at"):
+        return jsonify({"error": "consent required"}), 403
     
     body = request.get_json(silent=True) or {}
     q_id = body.get("questionId")
     answer = body.get("answer")
+    question_order = sess["question_order"] or []
+    idx = sess["q"]
+
+    if idx >= len(question_order):
+        db.session_upsert(sid, finished_at=time.time())
+        return jsonify({"error": "session finished"}), 403
+
+    expected_qid = question_order[idx]
+    if q_id != expected_qid:
+        return jsonify({"error": "question out of sequence"}), 400
+
+    with db.get_db() as cx:
+        q = cx.execute("SELECT options FROM questions WHERE id=?", (expected_qid,)).fetchone()
+    if not q:
+        db.session_upsert(sid, finished_at=time.time())
+        return jsonify({"error": "question unavailable"}), 400
+
+    options = json.loads(q["options"])
+    if answer not in options:
+        return jsonify({"error": "invalid answer"}), 400
     
     answers = sess["answers"]
     answers[str(q_id)] = answer
@@ -325,7 +357,8 @@ def submit_answer():
 @app.route("/api/flag", methods=["POST"])
 def log_event():
     sid = request.cookies.get("session_id")
-    if not sid:
+    sess = db.session_get(sid)
+    if not sess:
         return jsonify({"error": "unauthorized"}), 403
     
     body = request.get_json(silent=True) or {}
@@ -422,7 +455,10 @@ def add_question():
     subject = body.get("subject", "General")
     text = body.get("question")
     options = body.get("options", [])
-    correct_index = int(body.get("correctIndex", 0))
+    try:
+        correct_index = int(body.get("correctIndex", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "correctIndex must be an integer"}), 400
     decoy_left = body.get("decoyLeft", "").strip()
     decoy_right = body.get("decoyRight", "").strip()
     
@@ -447,7 +483,10 @@ def edit_question(qid):
     subject = body.get("subject", "General")
     text = body.get("question")
     options = body.get("options", [])
-    correct_index = int(body.get("correctIndex", 0))
+    try:
+        correct_index = int(body.get("correctIndex", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "correctIndex must be an integer"}), 400
     decoy_left = body.get("decoyLeft", "").strip()
     decoy_right = body.get("decoyRight", "").strip()
     
@@ -517,6 +556,5 @@ def static_proxy(path):
     return send_from_directory(app.static_folder, path)
 
 if __name__ == "__main__":
-    db.init_db()
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port, debug=False)

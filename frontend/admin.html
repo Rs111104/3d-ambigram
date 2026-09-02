@@ -70,7 +70,7 @@
         <div id="replaySection" class="card mt-16 is-hidden">
           <div style="display:flex; justify-content:space-between; align-items:center;">
              <h2>Forensic Timeline: <span id="replayCandidate">--</span></h2>
-             <button class="btn" style="padding:4px 12px; font-size:0.75rem" onclick="document.getElementById('replaySection').classList.add('is-hidden')">Close</button>
+             <button class="btn" style="padding:4px 12px; font-size:0.75rem" id="closeReplayBtn">Close</button>
           </div>
           <div id="replayTimeline" class="checklist mt-16" style="max-height: 350px; overflow-y: auto; border: 1px solid var(--border-color); padding: 1.25rem; background: var(--bg-primary);">
              <!-- Events injected here -->
@@ -97,7 +97,7 @@
             <div class="mt-10"><label>Decoy Right</label><input id="formDecoyR" class="input" type="text" /></div>
             <div class="mt-16">
               <button id="submitQuestion" class="btn">Submit Question</button>
-              <button class="btn" style="background:var(--status-bad)" onclick="window.closeQuestionForm()">Cancel</button>
+              <button class="btn" style="background:var(--status-bad)" id="cancelQuestionBtn">Cancel</button>
             </div>
           </div>
 

@@ -138,6 +138,8 @@
 
   // --- Question Management ---
   document.getElementById('addQuestionBtn').onclick = () => window.closeQuestionForm() || document.getElementById('questionForm').classList.remove('is-hidden');
+  document.getElementById('closeReplayBtn').onclick = () => document.getElementById('replaySection').classList.add('is-hidden');
+  document.getElementById('cancelQuestionBtn').onclick = () => window.closeQuestionForm();
   
   window.closeQuestionForm = () => {
     document.getElementById('questionForm').classList.add('is-hidden');

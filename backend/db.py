@@ -16,8 +16,12 @@ def get_db():
     it does NOT close the connection, causing file handle leaks.
     """
     global _wal_initialized
+    db_dir = os.path.dirname(os.path.abspath(DB_PATH))
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=15.0)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys=ON")
     if not _wal_initialized:
         conn.execute("PRAGMA journal_mode=WAL")
         _wal_initialized = True
@@ -108,13 +112,14 @@ def session_get(sid: str) -> dict | None:
     if not sid: return None
     with get_db() as cx:
         row = cx.execute(
-            "SELECT id, current_q, answers, started_at, finished_at, question_order, aes_key FROM sessions WHERE id=?", (sid,)
+            "SELECT id, current_q, answers, started_at, finished_at, consented_at, question_order, aes_key FROM sessions WHERE id=?", (sid,)
         ).fetchone()
         if not row: return None
         return {"id": row[0], "q": row[1],
                 "answers": json.loads(row[2]), "started_at": row[3], "finished_at": row[4],
-                "question_order": json.loads(row[5]) if row[5] else None,
-                "aes_key": row[6]}
+                "consented_at": row[5],
+                "question_order": json.loads(row[6]) if row[6] else None,
+                "aes_key": row[7]}
 
 # C2: Whitelist of valid session columns to prevent SQL injection via key names
 _SESSION_COLUMNS = frozenset({

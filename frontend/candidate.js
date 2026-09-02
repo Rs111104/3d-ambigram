@@ -9,6 +9,7 @@
     progress: document.getElementById('progressCounter'),
     answers: document.getElementById('answerGrid'),
     video: document.getElementById('trackingVideo'),
+    preview: document.getElementById('previewVideo'),
     consent: document.getElementById('consentCheck')
   };
 
@@ -348,6 +349,9 @@
 
   const cam = new Camera(UI.video, {
     onFrame: async () => {
+      if (UI.preview && UI.preview.srcObject !== UI.video.srcObject) {
+        UI.preview.srcObject = UI.video.srcObject;
+      }
       session.frameCount++;
       if (session.frameCount % 6 === 0) await fm.send({ image: UI.video });
     },

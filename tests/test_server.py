@@ -69,6 +69,28 @@ def test_session_start(client):
     assert "key" in data  # AES key should be returned
     assert "session_id" in r.headers.get("Set-Cookie", "")
 
+def test_question_requires_consent(client):
+    r = client.post("/api/session/start",
+        json={"email": "consent@example.com"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.get("/api/question")
+    assert r.status_code == 403
+    assert b"consent required" in r.data
+
+def test_answer_requires_consent(client):
+    r = client.post("/api/session/start",
+        json={"email": "answer-consent@example.com"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.post("/api/answer",
+        json={"questionId": 1, "answer": "Water"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 403
+    assert b"consent required" in r.data
+
 def test_session_start_invalid_email(client):
     """Server should reject session start with missing or invalid email."""
     # No email
@@ -117,6 +139,48 @@ def test_flag_event_cooldown(client):
     with db.get_db() as cx:
         events = cx.execute("SELECT COUNT(*) FROM flag_events WHERE event_type='no_face'").fetchone()[0]
         assert events == 1
+
+def test_flag_rejects_unknown_session(client):
+    client.set_cookie("session_id", "fake-session")
+    r = client.post("/api/flag",
+        json={"type": "no_face"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 403
+
+def test_answer_must_match_current_question(client):
+    r = client.post("/api/session/start",
+        json={"email": "sequence@example.com"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.post("/api/session/consent",
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    q = client.get("/api/question").get_json()
+    wrong_id = q["id"] + 9999
+    r = client.post("/api/answer",
+        json={"questionId": wrong_id, "answer": q["encrypted"]["ciphertext"]},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 400
+    assert b"question out of sequence" in r.data
+
+def test_answer_must_be_valid_option(client):
+    r = client.post("/api/session/start",
+        json={"email": "option@example.com"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.post("/api/session/consent",
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    q = client.get("/api/question").get_json()
+    r = client.post("/api/answer",
+        json={"questionId": q["id"], "answer": "not a real option"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 400
+    assert b"invalid answer" in r.data
 
 def test_session_expiry_answer(client):
     # Start session
@@ -192,6 +256,20 @@ def test_question_crud_and_settings(client):
     r = client.get("/api/admin/settings")
     assert json.loads(r.data)["inactivity_timeout"] == "500"
 
+def test_question_rejects_non_integer_correct_index(client):
+    r = client.post("/api/admin/login",
+        json={"username": "testadmin", "password": "testpass"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.post("/api/admin/question", json={
+        "subject": "Math",
+        "question": "What is 2+2?",
+        "options": ["3", "4", "5"],
+        "correctIndex": "abc"
+    }, headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 400
+
 def test_public_settings_endpoint(client):
     """Public settings endpoint should return inactivity_timeout without auth."""
     r = client.get("/api/settings")
@@ -204,6 +282,9 @@ def test_decoy_with_session(client):
     """Decoy endpoint should return encrypted data for a valid session."""
     r = client.post("/api/session/start",
         json={"email": "decoy@example.com"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+    r = client.post("/api/session/consent",
         headers={"X-Requested-With": "XMLHttpRequest"})
     assert r.status_code == 200
     
@@ -267,6 +348,9 @@ def test_encrypted_question_response(client):
     assert r.status_code == 200
     data = json.loads(r.data)
     assert "key" in data  # AES key
+    r = client.post("/api/session/consent",
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
 
     r = client.get("/api/question")
     assert r.status_code == 200
