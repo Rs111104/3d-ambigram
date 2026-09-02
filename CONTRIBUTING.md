@@ -1,6 +1,6 @@
 # Contributing to 3D Ambi
 
-Thank you for your interest in improving 3D Ambi! This project aims to be the gold standard for browser-based anti-cheat proctoring using WebGL angle-dependent rendering.
+Thank you for your interest in improving 3D Ambi. This project is a browser-based exam proctoring prototype using WebGL angle-dependent rendering.
 
 ## Architecture Overview
 
@@ -11,8 +11,7 @@ Browser (WebGL + MediaPipe WASM)  ←→  Flask + Gunicorn  ←→  SQLite
 | Layer | Files | Purpose |
 |-------|-------|---------|
 | **Frontend — Candidate** | `frontend/index.html`, `frontend/candidate.js` | WebGL canvas rendering, MediaPipe FaceMesh yaw estimation, AES-GCM decryption, inactivity timer |
-| **Frontend — Admin** | `frontend/admin.html`, `frontend/admin.js` | Session oversight, question CRUD with decoy fields, settings config, forensic timeline |
-| **Frontend — Demo** | `frontend/demo.html`, `frontend/demo.js` | Interactive angle simulator for the WebGL blending mechanic |
+| **Frontend — Admin** | `frontend/admin.html`, `frontend/admin.js` | Session oversight, question CRUD with decoy fields, settings config, timeline review, angle simulator |
 | **Backend — Server** | `backend/server.py` | Flask routes, admin auth (bcrypt), CSRF guard, CSP headers, AES-GCM encryption, rate limiting |
 | **Backend — Database** | `backend/db.py` | SQLite schema with WAL mode, session CRUD, flag event logging, migration guards |
 | **Tests** | `tests/test_server.py` | pytest suite covering auth, sessions, questions, settings, decoy fields, encryption |

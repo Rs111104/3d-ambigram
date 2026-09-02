@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>3D Ambi | Admin Intelligence</title>
+  <title>3D Ambi | Admin</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,7 +13,7 @@
   <div id="loginScreen" class="screen active">
     <div style="max-width: 400px; margin: 120px auto;">
       <div class="card">
-        <h2 style="margin-bottom:1.5rem">Proctor Authority</h2>
+        <h2 style="margin-bottom:1.5rem">Admin Login</h2>
         <div class="mt-16">
           <label>Administrator Username</label>
           <input id="loginUser" type="text" class="input" placeholder="e.g. admin" />
@@ -22,7 +22,7 @@
           <label>Security Password</label>
           <input id="loginPass" type="password" class="input" placeholder="••••••••" />
         </div>
-        <button id="loginBtn" class="btn mt-16" style="width: 100%;">Establish Secure Session</button>
+        <button id="loginBtn" class="btn mt-16" style="width: 100%;">Sign In</button>
         <div id="loginMsg" class="error-text mt-16" style="text-align:center"></div>
       </div>
     </div>
@@ -39,7 +39,7 @@
         <button class="nav-btn" data-screen="settings">Global Config</button>
       </nav>
       <div style="margin-top: auto;">
-        <button class="btn" style="width: 100%; background: var(--status-bad);" id="logoutBtn">Terminate Access</button>
+        <button class="btn" style="width: 100%; background: var(--status-bad);" id="logoutBtn">Sign Out</button>
       </div>
     </aside>
 
@@ -133,7 +133,7 @@
       <!-- Global Settings -->
       <section id="screen-settings" class="screen">
         <div class="card">
-          <h2>System Intelligence Config</h2>
+          <h2>System Settings</h2>
           <div class="mt-16">
             <label>Inactivity Timeout (seconds)</label>
             <input type="number" id="cfgTimeout" class="input" value="300" />
@@ -143,7 +143,7 @@
             <label>Integrity Warning Threshold (%)</label>
             <input type="number" id="cfgThreshold" class="input" value="80" />
           </div>
-          <button id="saveCfg" class="btn mt-16">Commit System Changes</button>
+          <button id="saveCfg" class="btn mt-16">Save Settings</button>
         </div>
       </section>
     </main>

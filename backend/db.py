@@ -103,7 +103,7 @@ def init_db():
             cx.execute("INSERT INTO settings (key, value) VALUES (?,?)", ("inactivity_timeout", "300"))
             cx.execute("INSERT INTO settings (key, value) VALUES (?,?)", ("integrity_threshold", "80"))
         
-        # H4: Purge expired admin sessions (older than 1 hour)
+        # Purge expired admin sessions.
         cx.execute("DELETE FROM admin_sessions WHERE created_at < ?", (time.time() - 3600,))
         
         cx.commit()
@@ -121,7 +121,6 @@ def session_get(sid: str) -> dict | None:
                 "question_order": json.loads(row[6]) if row[6] else None,
                 "aes_key": row[7]}
 
-# C2: Whitelist of valid session columns to prevent SQL injection via key names
 _SESSION_COLUMNS = frozenset({
     "exam_id", "candidate_email", "current_q", "answers",
     "consented_at", "started_at", "finished_at", "integrity_score",

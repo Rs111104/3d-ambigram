@@ -82,7 +82,7 @@ The server will refuse to start if required variables are not set.
 - [x] Admin dashboard with flag events
 - [x] Blink-based liveness detection
 - [x] SQLite persistence
-- [ ] AI-generated decoy questions
+- [ ] Generated decoy questions
 - [ ] Iris gaze estimation
 - [ ] Admin analytics charts
 - [ ] Mobile browser support

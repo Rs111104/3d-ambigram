@@ -1,11 +1,6 @@
-/**
- * 3D Ambi Administrative Control Suite
- * Professional proctoring and behavioral auditing interface.
- */
 (() => {
   let authState = { sessions: [] };
 
-  // C1: HTML escaping utility to prevent XSS
   function esc(str) {
     const el = document.createElement('span');
     el.textContent = str == null ? '' : String(str);
@@ -21,8 +16,6 @@
     sim: { angle: document.getElementById('simAngle'), real: document.getElementById('simReal'), decoy: document.getElementById('simDecoy'), status: document.getElementById('simStatus') }
   };
 
-  // --- Core Services ---
-  // BUG 5: API helper returns parsed JSON directly (returns null on non-200/401)
   const api = async (path, method = 'GET', body = null) => {
     const headers = { 'X-Requested-With': 'XMLHttpRequest' };
     if (body) headers['Content-Type'] = 'application/json';
@@ -53,7 +46,6 @@
     refreshSessions();
   };
 
-  // Persistent Authentication recovery on startup
   async function checkAuth() {
     try {
       const res = await fetch('/api/admin/sessions', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
@@ -121,7 +113,6 @@
     document.getElementById(UI.replay.section).scrollIntoView({ behavior: 'smooth' });
   }
 
-  // --- Simulation Engine ---
   UI.sim.angle.oninput = (e) => {
     const val = parseInt(e.target.value);
     const absVal = Math.abs(val);
@@ -136,7 +127,6 @@
     UI.sim.status.querySelector('.check-item').textContent = isAligned ? 'ALIGNED: Real Content Visible' : 'OUT OF ALIGNMENT: Decoy Active';
   };
 
-  // --- Question Management ---
   document.getElementById('addQuestionBtn').onclick = () => window.closeQuestionForm() || document.getElementById('questionForm').classList.remove('is-hidden');
   document.getElementById('closeReplayBtn').onclick = () => document.getElementById('replaySection').classList.add('is-hidden');
   document.getElementById('cancelQuestionBtn').onclick = () => window.closeQuestionForm();
@@ -193,7 +183,6 @@
     }
   };
   
-  // C1: Store question data for safe access without inline JS string escaping
   let _questionCache = [];
 
   async function refreshQuestions() {
@@ -232,7 +221,6 @@
     });
   }
 
-  // --- Global Settings ---
   async function loadSettings() {
     try {
       const res = await api('/api/admin/settings');
@@ -258,7 +246,6 @@
     window.location.href = '/api/admin/sessions/export';
   };
 
-  // M2: Admin logout redirect
   document.getElementById('logoutBtn').onclick = async () => {
     await api('/api/admin/logout', 'POST');
     window.location.href = '/admin';

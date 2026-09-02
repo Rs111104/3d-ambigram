@@ -70,7 +70,6 @@
     }
   }
 
-  // WebGL Check
   function checkWebGL() {
     const canvas = document.createElement("canvas");
     const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
@@ -83,10 +82,8 @@
   }
   if (!checkWebGL()) return;
 
-  // WebGL Initialization
   const gl = UI.canvas.getContext('webgl');
   const vertSource = `attribute vec2 p; varying vec2 v; void main() { v = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
-  // I1: Directional blend fragment shader (3 textures)
   const fragSource = `
     precision highp float;
     varying vec2 v;
@@ -131,7 +128,6 @@
   const tCtx = tCanvas.getContext('2d');
   tCanvas.width = 1280; tCanvas.height = 720;
 
-  // H2 Word-wrapping helper
   function wrapText(ctx, text, maxWidth) {
     const words = text.split(' ');
     const lines = [];
@@ -188,7 +184,6 @@
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
-  // M4 AES decryption helper using native Web Crypto API
   async function decryptPayload(encrypted, hexKey) {
     try {
       const keyBytes = new Uint8Array(hexKey.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
@@ -308,7 +303,6 @@
   fm.setOptions({ maxNumFaces: 2, refineLandmarks: true, minDetectionConfidence: 0.5 });
   
   fm.onResults(res => {
-    // I3: Remove loading overlay on first biometric results
     if (!biometricLoaderRemoved) {
       const loader = document.getElementById('biometric-loader');
       if (loader) loader.remove();
@@ -324,7 +318,6 @@
 
     if (session.faceDetected) {
       const lms = faces[0];
-      // H3: Rotation-invariant multi-landmark Face Yaw calculation
       const leftDist  = lms[1].x - lms[234].x;
       const rightDist = lms[454].x - lms[1].x;
       const yaw       = ((rightDist - leftDist) / (rightDist + leftDist)) * 45;
@@ -369,7 +362,6 @@
   }, 30000);
 
   function loop() {
-    // I1: WebGL blend left vs right based on sign of yaw
     const yaw = session.currentYaw;
     const blendLeft = Math.max(0, Math.min(1, (Math.max(0, -yaw) - 10) / 20));
     const blendRight = Math.max(0, Math.min(1, (Math.max(0, yaw) - 10) / 20));
@@ -381,7 +373,6 @@
     gl.uniform1f(unis.blendRight, session.blendFactors.right);
     gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
     
-    // I4: Smooth opacity fade of answer buttons when decoy starts blending
     const answersEl = UI.answers;
     const maxBlend = Math.max(session.blendFactors.left, session.blendFactors.right);
     if (maxBlend > 0.4) {

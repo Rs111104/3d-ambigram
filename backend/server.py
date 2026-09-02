@@ -53,10 +53,9 @@ ADMIN_USER = _require_env("ADMIN_USER")
 ADMIN_PASSWORD_HASH = _require_env("ADMIN_PASSWORD_HASH")
 FLASK_SECRET = _require_env("FLASK_SECRET")
 
-# C3: Detect if running behind HTTPS; default to False for local HTTP deployment
+# Detect if running behind HTTPS; default to False for local HTTP deployment.
 IS_SECURE = os.environ.get("SECURE_COOKIES", "false").lower() == "true"
 
-# I6: HTTPS warning in production
 if not IS_SECURE and (os.environ.get("RENDER") or os.environ.get("PRODUCTION")):
     logger.warning("SECURITY WARNING: Running in production/Render with SECURE_COOKIES=false! Admin and session cookies are not marked secure.")
 
@@ -66,7 +65,6 @@ app.secret_key = FLASK_SECRET
 with app.app_context():
     db.init_db()
 
-# M4 AES payload encryption helper
 def encrypt_payload(data: dict, hex_key: str) -> dict:
     key = bytes.fromhex(hex_key)
     aesgcm = AESGCM(key)
@@ -116,7 +114,6 @@ def set_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    # H5: Strict CSP header (removed unsafe-inline for scripts since they are externalized)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' cdn.jsdelivr.net fonts.googleapis.com; "
@@ -174,7 +171,6 @@ def admin_logout():
     resp.delete_cookie("admin_token")
     return resp
 
-# H4 public settings route
 @app.route("/api/settings", methods=["GET"])
 def public_settings():
     with db.get_db() as cx:
@@ -185,20 +181,17 @@ def public_settings():
 @app.route("/api/session/start", methods=["POST"])
 @limiter.limit("3 per 10 minutes")
 def start_session():
-    # M5 email capture and validation
     body = request.get_json(silent=True) or {}
     email = body.get("email", "").strip()
     if not email or not re.match(r"[^@]+@[^@]+\.[^@]+", email):
         return jsonify({"error": "Invalid email address"}), 400
 
-    # M1 per-session question order randomization
     with db.get_db() as cx:
         rows = cx.execute("SELECT id FROM questions ORDER BY id").fetchall()
     q_ids = [r["id"] for r in rows]
     import random
     random.shuffle(q_ids)
 
-    # M4 AES key generation
     aes_key = secrets.token_hex(32)
 
     sid = secrets.token_urlsafe(32)
@@ -249,7 +242,6 @@ def get_question():
         db.session_upsert(sid, finished_at=time.time())
         return jsonify({"done": True})
 
-    # M4 AES encryption for questions
     question_data = {
         "text": q["text"],
         "options": json.loads(q["options"])
@@ -306,7 +298,6 @@ def get_decoy():
             "options": decoy_right_options
         }
     }
-    # M4 AES encryption for decoy payload
     encrypted = encrypt_payload(decoy_data, sess["aes_key"])
     return jsonify({
         "encrypted": encrypted
@@ -411,7 +402,6 @@ def admin_sessions():
         started = r["started_at"] or time.time()
         finished = r["finished_at"] or time.time()
         
-        # H1: Compute actual score
         answers = json.loads(r["answers"]) if r["answers"] else {}
         correct = sum(1 for qid, ans in answers.items() if answer_key.get(qid) == ans)
         total = len(answer_key)
@@ -462,7 +452,6 @@ def add_question():
     decoy_left = body.get("decoyLeft", "").strip()
     decoy_right = body.get("decoyRight", "").strip()
     
-    # M5: Input validation
     if not text or not isinstance(text, str) or not text.strip():
         return jsonify({"error": "Question text is required"}), 400
     if not isinstance(options, list) or len(options) < 2:
@@ -490,7 +479,6 @@ def edit_question(qid):
     decoy_left = body.get("decoyLeft", "").strip()
     decoy_right = body.get("decoyRight", "").strip()
     
-    # M5: Input validation
     if not text or not isinstance(text, str) or not text.strip():
         return jsonify({"error": "Question text is required"}), 400
     if not isinstance(options, list) or len(options) < 2:
