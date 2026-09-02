@@ -175,7 +175,10 @@ def admin_logout():
 def public_settings():
     with db.get_db() as cx:
         row = cx.execute("SELECT value FROM settings WHERE key=?", ("inactivity_timeout",)).fetchone()
-    timeout = int(row[0]) if row else 300
+    try:
+        timeout = int(row[0]) if row else 300
+    except (TypeError, ValueError):
+        timeout = 300
     return jsonify({"inactivity_timeout": timeout})
 
 @app.route("/api/session/start", methods=["POST"])
@@ -511,9 +514,33 @@ def get_settings():
 @admin_required
 def save_settings():
     body = request.get_json() or {}
+    allowed = {"inactivity_timeout", "integrity_threshold"}
+    invalid = set(body) - allowed
+    if invalid:
+        return jsonify({"error": f"unsupported setting: {sorted(invalid)[0]}"}), 400
+
+    normalized = {}
+    if "inactivity_timeout" in body:
+        try:
+            timeout = int(body["inactivity_timeout"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "inactivity_timeout must be an integer"}), 400
+        if timeout < 30 or timeout > 86400:
+            return jsonify({"error": "inactivity_timeout must be between 30 and 86400"}), 400
+        normalized["inactivity_timeout"] = str(timeout)
+
+    if "integrity_threshold" in body:
+        try:
+            threshold = int(body["integrity_threshold"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "integrity_threshold must be an integer"}), 400
+        if threshold < 0 or threshold > 100:
+            return jsonify({"error": "integrity_threshold must be between 0 and 100"}), 400
+        normalized["integrity_threshold"] = str(threshold)
+
     with db.get_db() as cx:
-        for k, v in body.items():
-            cx.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (k, str(v)))
+        for k, v in normalized.items():
+            cx.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?,?)", (k, v))
         cx.commit()
     return jsonify({"ok": True})
 

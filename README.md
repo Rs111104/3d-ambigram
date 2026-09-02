@@ -48,6 +48,8 @@ Admin page:     http://localhost:8080/admin
 ## Docker
 
 ```bash
+cp .env.example .env
+# Edit .env and set ADMIN_USER, ADMIN_PASSWORD_HASH, and FLASK_SECRET.
 docker compose up
 ```
 
@@ -60,6 +62,7 @@ docker compose up
 | FLASK_SECRET          | Yes      | Random 32-byte hex string for session signing  |
 | DB_PATH               | No       | SQLite file path (default: exam.db)            |
 | PORT                  | No       | Server port (default: 8080)                    |
+| SECURE_COOKIES        | No       | Set to `true` when serving over HTTPS          |
 
 The server will refuse to start if required variables are not set.
 

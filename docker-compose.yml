@@ -1,13 +1,12 @@
-version: "3.9"
 services:
   web:
     build: .
     ports:
       - "8080:8080"
     environment:
-      - ADMIN_USER=${ADMIN_USER}
-      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
-      - FLASK_SECRET=${FLASK_SECRET}
+      - ADMIN_USER=${ADMIN_USER:?ADMIN_USER is required}
+      - ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH:?ADMIN_PASSWORD_HASH is required}
+      - FLASK_SECRET=${FLASK_SECRET:?FLASK_SECRET is required}
       - DB_PATH=/data/exam.db
       - SECURE_COOKIES=${SECURE_COOKIES:-false}  # Set to true for production/HTTPS
     volumes:

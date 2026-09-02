@@ -278,6 +278,46 @@ def test_public_settings_endpoint(client):
     assert "inactivity_timeout" in data
     assert isinstance(data["inactivity_timeout"], int)
 
+def test_public_settings_falls_back_for_corrupt_timeout(client):
+    with db.get_db() as cx:
+        cx.execute("UPDATE settings SET value=? WHERE key=?", ("not-a-number", "inactivity_timeout"))
+        cx.commit()
+
+    r = client.get("/api/settings")
+    assert r.status_code == 200
+    assert r.get_json()["inactivity_timeout"] == 300
+
+def test_admin_settings_validation(client):
+    r = client.post("/api/admin/login",
+        json={"username": "testadmin", "password": "testpass"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    cases = [
+        {"inactivity_timeout": "abc"},
+        {"inactivity_timeout": 29},
+        {"inactivity_timeout": 86401},
+        {"integrity_threshold": "abc"},
+        {"integrity_threshold": -1},
+        {"integrity_threshold": 101},
+        {"unexpected": "value"},
+    ]
+    for payload in cases:
+        r = client.post("/api/admin/settings",
+            json=payload,
+            headers={"X-Requested-With": "XMLHttpRequest"})
+        assert r.status_code == 400
+
+    r = client.post("/api/admin/settings",
+        json={"inactivity_timeout": "500", "integrity_threshold": "75"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    r = client.get("/api/admin/settings")
+    data = r.get_json()
+    assert data["inactivity_timeout"] == "500"
+    assert data["integrity_threshold"] == "75"
+
 def test_decoy_with_session(client):
     """Decoy endpoint should return encrypted data for a valid session."""
     r = client.post("/api/session/start",
