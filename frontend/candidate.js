@@ -16,6 +16,7 @@
   let session = {
     active: false,
     currentYaw: 0,
+    yawBaseline: null,
     blendFactors: { left: 0, right: 0 },
     lastBlinkTime: Date.now(),
     decoyFetched: false,
@@ -24,7 +25,8 @@
     faceDetected: false,
     faceCount: 0,
     frameCount: 0,
-    aesKey: null
+    aesKey: null,
+    privacyForced: false
   };
 
   let inactivityTimeout = 300; // fallback default
@@ -70,6 +72,32 @@
     }
   }
 
+  function setBiometricUnavailable(message) {
+    const loader = document.getElementById('biometric-loader');
+    if (loader) {
+      loader.textContent = '';
+      const panel = document.createElement('div');
+      panel.className = 'biometric-error-panel';
+      const title = document.createElement('h2');
+      title.textContent = 'Biometric engine unavailable';
+      const copy = document.createElement('p');
+      copy.textContent = message;
+      const retry = document.createElement('button');
+      retry.className = 'btn';
+      retry.id = 'retryBiometricBtn';
+      retry.textContent = 'Retry';
+      retry.onclick = () => location.reload();
+      panel.append(title, copy, retry);
+      loader.appendChild(panel);
+    }
+    UI.status.textContent = 'Biometric setup failed';
+    UI.btn.disabled = true;
+    UI.btn.textContent = 'Setup Required';
+    UI.checklist.cam.classList.remove('ok');
+    UI.checklist.face.classList.remove('ok');
+    UI.checklist.light.classList.remove('ok');
+  }
+
   function checkWebGL() {
     const canvas = document.createElement("canvas");
     const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
@@ -83,17 +111,50 @@
   if (!checkWebGL()) return;
 
   const gl = UI.canvas.getContext('webgl');
-  const vertSource = `attribute vec2 p; varying vec2 v; void main() { v = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }`;
+  const vertSource = `
+    attribute vec2 p;
+    varying vec2 v;
+    void main() {
+      v = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+      gl_Position = vec4(p, 0.0, 1.0);
+    }
+  `;
   const fragSource = `
     precision highp float;
     varying vec2 v;
-    uniform sampler2D realTex, decoyLeftTex, decoyRightTex;
-    uniform float blendLeft, blendRight;
+    uniform sampler2D realTex;
+    uniform float privacyAmount, privacyDir, lockAmount, scanTime;
+
+    float hash(float n) {
+      return fract(sin(n) * 43758.5453123);
+    }
+
     void main() {
       vec4 real = texture2D(realTex, v);
-      vec4 decoyLeft = texture2D(decoyLeftTex, v);
-      vec4 decoyRight = texture2D(decoyRightTex, v);
-      gl_FragColor = mix(mix(real, decoyLeft, blendLeft), decoyRight, blendRight);
+      float p = smoothstep(0.0, 1.0, privacyAmount);
+      p = max(p, lockAmount);
+      float slat = floor(v.x * 72.0);
+      float row = floor(v.y * 26.0);
+      float jitter = (hash(slat * 19.17 + row * 3.91) - 0.5) * 0.22 * p;
+      vec2 shreddedUv = vec2(
+        clamp(0.5 + (v.x - 0.5) * (1.0 - 0.72 * p) + privacyDir * 0.42 * p + jitter, 0.0, 1.0),
+        clamp(v.y + (hash(row * 11.3 + slat) - 0.5) * 0.09 * p, 0.0, 1.0)
+      );
+      vec4 shredded = texture2D(realTex, shreddedUv);
+      float shutter = step(0.42 + 0.22 * p, fract(v.x * 72.0 + privacyDir * p * 8.0));
+      vec3 shutterColor = mix(vec3(0.03, 0.04, 0.06), vec3(0.92, 0.95, 0.98), shutter);
+      vec3 protectedColor = mix(shutterColor, shredded.rgb, 0.12 * (1.0 - shutter) * (1.0 - lockAmount));
+      float sweep = fract(scanTime * 1.65);
+      float bandA = 1.0 - smoothstep(0.014, 0.034, abs(v.y - sweep));
+      float bandB = 1.0 - smoothstep(0.014, 0.034, abs(v.y - fract(sweep + 0.25)));
+      float bandC = 1.0 - smoothstep(0.014, 0.034, abs(v.y - fract(sweep + 0.50)));
+      float bandD = 1.0 - smoothstep(0.014, 0.034, abs(v.y - fract(sweep + 0.75)));
+      float reveal = clamp(max(max(bandA, bandB), max(bandC, bandD)) + 0.28, 0.0, 1.0);
+      float microSlat = step(0.38, fract(v.x * 118.0 + scanTime * 1.7));
+      reveal *= mix(0.55, 1.0, microSlat);
+      vec3 paper = vec3(0.96, 0.98, 1.0);
+      vec3 staticProtected = mix(paper, real.rgb, reveal);
+      gl_FragColor = vec4(mix(staticProtected, protectedColor, p), 1.0);
     }
   `;
 
@@ -115,18 +176,32 @@
   gl.enableVertexAttribArray(pLoc); gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 0, 0);
 
   const unis = {
-    blendLeft: gl.getUniformLocation(prog, 'blendLeft'),
-    blendRight: gl.getUniformLocation(prog, 'blendRight'),
     real: gl.getUniformLocation(prog, 'realTex'),
-    decoyLeft: gl.getUniformLocation(prog, 'decoyLeftTex'),
-    decoyRight: gl.getUniformLocation(prog, 'decoyRightTex')
+    privacyAmount: gl.getUniformLocation(prog, 'privacyAmount'),
+    privacyDir: gl.getUniformLocation(prog, 'privacyDir'),
+    lockAmount: gl.getUniformLocation(prog, 'lockAmount'),
+    scanTime: gl.getUniformLocation(prog, 'scanTime')
   };
-  gl.uniform1i(unis.real, 0); gl.uniform1i(unis.decoyLeft, 1); gl.uniform1i(unis.decoyRight, 2);
+  gl.uniform1i(unis.real, 0);
   const textures = [gl.createTexture(), gl.createTexture(), gl.createTexture()];
 
   const tCanvas = document.createElement('canvas');
   const tCtx = tCanvas.getContext('2d');
   tCanvas.width = 1280; tCanvas.height = 720;
+
+  function clearTexture(slot) {
+    tCtx.fillStyle = '#fff';
+    tCtx.fillRect(0, 0, 1280, 720);
+    gl.activeTexture(gl.TEXTURE0 + slot);
+    gl.bindTexture(gl.TEXTURE_2D, textures[slot]);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tCanvas);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  textures.forEach((_, slot) => clearTexture(slot));
 
   function wrapText(ctx, text, maxWidth) {
     const words = text.split(' ');
@@ -152,29 +227,41 @@
 
   function updateTexture(slot, text, options) {
     tCtx.fillStyle = '#fff'; tCtx.fillRect(0, 0, 1280, 720);
-    tCtx.fillStyle = '#0f172a'; tCtx.font = 'bold 44px Inter';
+    tCtx.fillStyle = '#020617';
+    tCtx.strokeStyle = 'rgba(255,255,255,0.92)';
+    tCtx.lineWidth = 7;
+    tCtx.font = '900 58px Inter, Arial, sans-serif';
     tCtx.textAlign = 'center';
+    tCtx.textBaseline = 'middle';
     
     const lines = wrapText(tCtx, text, 1080);
-    const lineHeight = 62;
+    const lineHeight = 76;
     const totalBlockHeight = lines.length * lineHeight;
-    const startY = (720 - totalBlockHeight) / 2 - (options ? 60 : 0);
+    const startY = (720 - totalBlockHeight) / 2 - (options ? 82 : 0);
     
     lines.forEach((line, i) => {
-      tCtx.fillText(line, 640, startY + i * lineHeight);
+      const y = startY + i * lineHeight;
+      tCtx.strokeText(line, 640, y);
+      tCtx.fillText(line, 640, y);
     });
 
     if (options && options.length > 0) {
-      tCtx.font = '500 28px Inter';
-      tCtx.fillStyle = '#64748b';
-      const optionLineHeight = 45;
-      const optionsStartY = 480;
+      tCtx.font = '800 38px Inter, Arial, sans-serif';
+      tCtx.fillStyle = '#1e293b';
+      tCtx.strokeStyle = 'rgba(255,255,255,0.86)';
+      tCtx.lineWidth = 5;
+      const optionLineHeight = 54;
+      const optionsStartY = 475;
       options.forEach((opt, idx) => {
         const label = `${String.fromCharCode(65 + idx)}. ${opt}`;
-        tCtx.fillText(label, 640, optionsStartY + idx * optionLineHeight);
+        const y = optionsStartY + idx * optionLineHeight;
+        tCtx.strokeText(label, 640, y);
+        tCtx.fillText(label, 640, y);
       });
     }
-    
+
+    drawPrivacyWeave();
+
     gl.activeTexture(gl.TEXTURE0 + slot);
     gl.bindTexture(gl.TEXTURE_2D, textures[slot]);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tCanvas);
@@ -212,9 +299,30 @@
   async function api(path, method = 'GET', body = null) {
     const headers = { 'X-Requested-With': 'XMLHttpRequest' };
     if (body) headers['Content-Type'] = 'application/json';
-    const r = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : null });
-    if (!r.ok) return null;
-    return r.json();
+    try {
+      const r = await fetch(path, { method, headers, body: body ? JSON.stringify(body) : null });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) return { ok: false, status: r.status, error: data.error || 'Request failed' };
+      return data;
+    } catch (e) {
+      console.error("Network request failed", e);
+      return { ok: false, error: 'Network error. Check that the server is running.' };
+    }
+  }
+
+  function drawPrivacyWeave() {
+    tCtx.save();
+    tCtx.globalAlpha = 0.22;
+    for (let x = 0; x < 1280; x += 8) {
+      tCtx.fillStyle = x % 16 === 0 ? '#ffffff' : '#cbd5e1';
+      tCtx.fillRect(x, 0, 3, 720);
+    }
+    tCtx.globalAlpha = 0.08;
+    tCtx.fillStyle = '#0f172a';
+    for (let y = 0; y < 720; y += 18) {
+      tCtx.fillRect(0, y, 1280, 1);
+    }
+    tCtx.restore();
   }
 
   const lastFlagTimes = {};
@@ -242,7 +350,11 @@
 
   async function loadQuestion() {
     const q = await api('/api/question');
-    if (!q || q.done) { stopTimer(); show('done'); return; }
+    if (!q || q.ok === false) {
+      showCandidateError(q && q.error ? q.error : 'Unable to load the next question.');
+      return;
+    }
+    if (q.done) { stopTimer(); show('done'); return; }
     
     let questionData = q;
     if (q.encrypted && session.aesKey) {
@@ -254,6 +366,10 @@
     }
     
     session.decoyFetched = false;
+    session.blendFactors.left = 0;
+    session.blendFactors.right = 0;
+    clearTexture(1);
+    clearTexture(2);
     UI.progress.textContent = `Question ${questionData.index + 1} of ${questionData.total}`;
     updateTexture(0, questionData.text, questionData.options);
     
@@ -261,7 +377,8 @@
     questionData.options.forEach((opt, i) => {
       const b = document.createElement('button');
       b.className = 'btn';
-      b.textContent = opt;
+      b.textContent = String.fromCharCode(65 + i);
+      b.setAttribute('aria-label', `Select option ${String.fromCharCode(65 + i)}`);
       b.onclick = () => submit(questionData.id, opt);
       UI.answers.appendChild(b);
     });
@@ -269,8 +386,26 @@
   }
 
   async function submit(qId, val) {
-    await api('/api/answer', 'POST', { questionId: qId, answer: val });
+    setAnswersDisabled(true);
+    const res = await api('/api/answer', 'POST', { questionId: qId, answer: val });
+    if (!res || res.ok === false) {
+      setAnswersDisabled(false);
+      showCandidateError(res && res.error ? res.error : 'Unable to submit your answer.');
+      return;
+    }
     loadQuestion();
+  }
+
+  function setAnswersDisabled(disabled) {
+    UI.answers.querySelectorAll('button').forEach(button => {
+      button.disabled = disabled;
+    });
+  }
+
+  function showCandidateError(message) {
+    UI.status.textContent = message;
+    UI.dot.classList.remove('status-dot--good', 'status-dot--warn');
+    UI.dot.classList.add('status-dot--bad');
   }
 
   async function fetchDecoy() {
@@ -299,14 +434,28 @@
   }
 
   let biometricLoaderRemoved = false;
+  if (typeof FaceMesh !== 'function' || typeof Camera !== 'function') {
+    setBiometricUnavailable('Required browser tracking scripts did not load. Check your connection and reload the page.');
+    return;
+  }
+
+  const biometricTimeout = setTimeout(() => {
+    if (!biometricLoaderRemoved) {
+      setBiometricUnavailable('Setup took too long. Allow camera access, check your connection, then retry.');
+    }
+  }, 15000);
+
+  let faceMeshFailureCount = 0;
   const fm = new FaceMesh({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
   fm.setOptions({ maxNumFaces: 2, refineLandmarks: true, minDetectionConfidence: 0.5 });
   
   fm.onResults(res => {
+    faceMeshFailureCount = 0;
     if (!biometricLoaderRemoved) {
       const loader = document.getElementById('biometric-loader');
       if (loader) loader.remove();
       biometricLoaderRemoved = true;
+      clearTimeout(biometricTimeout);
     }
 
     const faces = res.multiFaceLandmarks || [];
@@ -320,8 +469,11 @@
       const lms = faces[0];
       const leftDist  = lms[1].x - lms[234].x;
       const rightDist = lms[454].x - lms[1].x;
-      const yaw       = ((rightDist - leftDist) / (rightDist + leftDist)) * 45;
-      session.currentYaw = yaw;
+      const rawYaw = ((rightDist - leftDist) / (rightDist + leftDist)) * 45;
+      if (!session.active || session.yawBaseline === null) {
+        session.yawBaseline = rawYaw;
+      }
+      session.currentYaw = rawYaw - session.yawBaseline;
 
       const ear = lms[145].y - lms[159].y;
       if (ear < 0.012) session.lastBlinkTime = Date.now();
@@ -333,11 +485,15 @@
     if (session.active) {
       if (session.faceCount > 1) sendFlag('multiple_faces', `Detected ${session.faceCount} faces`);
       if (session.faceCount === 0) sendFlag('no_face');
+      session.privacyForced = session.faceCount !== 1 || Math.abs(session.currentYaw) > 12;
       if (Math.abs(session.currentYaw) > 15) fetchDecoy();
+    } else {
+      session.privacyForced = false;
     }
 
-    UI.btn.disabled = !session.faceDetected || !UI.consent.checked;
-    UI.btn.textContent = !session.faceDetected ? 'Align Face to Start' : (!UI.consent.checked ? 'Accept Consent' : 'Begin Assessment');
+    const aligned = session.faceDetected && Math.abs(session.currentYaw) <= 12;
+    UI.btn.disabled = !aligned || !UI.consent.checked;
+    UI.btn.textContent = !aligned ? 'Face Camera Directly' : (!UI.consent.checked ? 'Accept Consent' : 'Begin Assessment');
   });
 
   const cam = new Camera(UI.video, {
@@ -346,13 +502,26 @@
         UI.preview.srcObject = UI.video.srcObject;
       }
       session.frameCount++;
-      if (session.frameCount % 6 === 0) await fm.send({ image: UI.video });
+      if (session.frameCount % 6 === 0) {
+        try {
+          await fm.send({ image: UI.video });
+        } catch (e) {
+          console.error("Face tracking failed", e);
+          faceMeshFailureCount++;
+          if (faceMeshFailureCount >= 5) {
+            setBiometricUnavailable('Face tracking failed to initialize. Reload the page and allow camera access.');
+          }
+        }
+      }
     },
     width: 1280, height: 720
   });
   cam.start().then(() => {
     UI.checklist.cam.classList.add('ok');
     UI.checklist.cam.querySelector('.icon').textContent = '✅';
+  }).catch(e => {
+    console.error("Camera start failed", e);
+    setBiometricUnavailable('Camera access is required. Allow camera permission in your browser and retry.');
   });
 
   setInterval(() => {
@@ -363,24 +532,36 @@
 
   function loop() {
     const yaw = session.currentYaw;
-    const blendLeft = Math.max(0, Math.min(1, (Math.max(0, -yaw) - 10) / 20));
-    const blendRight = Math.max(0, Math.min(1, (Math.max(0, yaw) - 10) / 20));
-    
+    const blendLeft = Math.max(0, Math.min(1, (Math.max(0, -yaw) - 14) / 14));
+    const blendRight = Math.max(0, Math.min(1, (Math.max(0, yaw) - 14) / 14));
+
     session.blendFactors.left += (blendLeft - session.blendFactors.left) * 0.1;
     session.blendFactors.right += (blendRight - session.blendFactors.right) * 0.1;
-    
-    gl.uniform1f(unis.blendLeft, session.blendFactors.left);
-    gl.uniform1f(unis.blendRight, session.blendFactors.right);
-    gl.drawArrays(gl.TRIANGLE_FAN, 0, 4);
-    
+
+    const privacyAmount = Math.max(session.blendFactors.left, session.blendFactors.right);
+    const lockAmount = session.privacyForced ? 1 : 0;
+    const privacyDir = session.blendFactors.right >= session.blendFactors.left ? 1 : -1;
+    gl.uniform1f(unis.privacyAmount, privacyAmount);
+    gl.uniform1f(unis.privacyDir, privacyDir);
+    gl.uniform1f(unis.lockAmount, lockAmount);
+    gl.uniform1f(unis.scanTime, performance.now() / 1000);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
     const answersEl = UI.answers;
-    const maxBlend = Math.max(session.blendFactors.left, session.blendFactors.right);
-    if (maxBlend > 0.4) {
+    if (lockAmount > 0 || privacyAmount > 0.35) {
       answersEl.style.opacity = '0';
       answersEl.style.pointerEvents = 'none';
-    } else if (maxBlend < 0.2) {
+      UI.status.textContent = lockAmount > 0 ? 'Screen locked: face must stay centered' : 'Privacy shield active';
+      UI.dot.classList.remove('status-dot--good');
+      UI.dot.classList.add('status-dot--warn');
+    } else if (privacyAmount < 0.15) {
       answersEl.style.opacity = '1';
       answersEl.style.pointerEvents = 'auto';
+      if (session.active) {
+        UI.status.textContent = 'Secure view aligned';
+        UI.dot.classList.remove('status-dot--warn', 'status-dot--bad');
+        UI.dot.classList.add('status-dot--good');
+      }
     }
 
     requestAnimationFrame(loop);
@@ -409,19 +590,35 @@
       return;
     }
 
+    UI.btn.disabled = true;
+    UI.btn.textContent = 'Starting...';
+
     const startRes = await api('/api/session/start', 'POST', { email: emailVal });
-    if (!startRes || startRes.error) {
+    if (!startRes || startRes.ok === false || startRes.error) {
       const emailError = document.getElementById('emailError');
       if (emailError) {
         emailError.textContent = startRes ? startRes.error : "Failed to start session";
         emailError.style.display = "block";
       }
+      UI.btn.disabled = !session.faceDetected || !UI.consent.checked;
+      UI.btn.textContent = 'Begin Assessment';
       return;
     }
     
     session.aesKey = startRes.key;
+    session.yawBaseline = null;
     
-    await api('/api/session/consent', 'POST');
+    const consentRes = await api('/api/session/consent', 'POST');
+    if (!consentRes || consentRes.ok === false) {
+      const emailError = document.getElementById('emailError');
+      if (emailError) {
+        emailError.textContent = consentRes ? consentRes.error : "Failed to record consent";
+        emailError.style.display = "block";
+      }
+      UI.btn.disabled = !session.faceDetected || !UI.consent.checked;
+      UI.btn.textContent = 'Begin Assessment';
+      return;
+    }
     session.active = true;
     const startedAt = startRes.started_at ? startRes.started_at * 1000 : Date.now();
     show('test');
@@ -434,8 +631,9 @@
   });
 
   UI.consent.onchange = () => {
-    UI.btn.disabled = !session.faceDetected || !UI.consent.checked;
-    UI.btn.textContent = !session.faceDetected ? 'Align Face to Start' : (!UI.consent.checked ? 'Accept Consent' : 'Begin Assessment');
+    const aligned = session.faceDetected && Math.abs(session.currentYaw) <= 12;
+    UI.btn.disabled = !aligned || !UI.consent.checked;
+    UI.btn.textContent = !aligned ? 'Face Camera Directly' : (!UI.consent.checked ? 'Accept Consent' : 'Begin Assessment');
   };
 
   const finishBtn = document.getElementById('finishBtn');

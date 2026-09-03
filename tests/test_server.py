@@ -51,6 +51,13 @@ def test_admin_login_correct(client):
     assert r.status_code == 200
     assert "admin_token" in r.headers.get("Set-Cookie", "")
 
+def test_admin_login_local_dev_password(client, monkeypatch):
+    monkeypatch.setattr("server.ADMIN_PASSWORD_DEV", "devpass")
+    r = client.post("/api/admin/login",
+        json={"username": "testadmin", "password": "devpass"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
 def test_decoy_requires_session(client):
     r = client.get("/api/decoy")
     assert r.status_code == 403
@@ -58,6 +65,39 @@ def test_decoy_requires_session(client):
 def test_admin_dashboard_requires_auth(client):
     r = client.get("/admin")
     assert r.status_code == 302  # redirect to login
+
+def test_admin_login_uses_root_static_assets(client):
+    r = client.get("/admin/login")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert 'href="/styles.css"' in html
+    assert 'src="/admin.js"' in html
+
+def test_candidate_page_uses_root_static_assets(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.get_data(as_text=True)
+    assert 'href="/styles.css"' in html
+    assert 'src="/candidate.js"' in html
+
+def test_candidate_renderer_uses_privacy_shutter():
+    script_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "candidate.js")
+    script = open(script_path, encoding="utf-8").read()
+    assert "privacyAmount" in script
+    assert "lockAmount" in script
+    assert "scanTime" in script
+    assert "scanTime * 1.65" in script
+    assert "shutter" in script
+    assert "drawPrivacyWeave" in script
+    assert "900 58px" in script
+    assert "strokeText" in script
+    assert "gl.drawArrays(gl.TRIANGLE_STRIP" in script
+
+def test_csp_allows_mediapipe_wasm(client):
+    r = client.get("/")
+    csp = r.headers["Content-Security-Policy"]
+    assert "'wasm-unsafe-eval'" in csp
+    assert "cdn.jsdelivr.net" in csp
 
 def test_session_start(client):
     r = client.post("/api/session/start",
@@ -181,6 +221,32 @@ def test_answer_must_be_valid_option(client):
         headers={"X-Requested-With": "XMLHttpRequest"})
     assert r.status_code == 400
     assert b"invalid answer" in r.data
+
+def test_submit_answer_records_and_advances_once(client):
+    r = client.post("/api/session/start",
+        json={"email": "submit@example.com"},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+    sid = r.get_json()["session_id"]
+
+    r = client.post("/api/session/consent",
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    q = client.get("/api/question").get_json()
+    with db.get_db() as cx:
+        row = cx.execute("SELECT options FROM questions WHERE id=?", (q["id"],)).fetchone()
+    answer = json.loads(row["options"])[0]
+
+    r = client.post("/api/answer",
+        json={"questionId": q["id"], "answer": answer},
+        headers={"X-Requested-With": "XMLHttpRequest"})
+    assert r.status_code == 200
+
+    with db.get_db() as cx:
+        session = cx.execute("SELECT current_q, answers FROM sessions WHERE id=?", (sid,)).fetchone()
+    assert session["current_q"] == 1
+    assert json.loads(session["answers"])[str(q["id"])] == answer
 
 def test_session_expiry_answer(client):
     # Start session
